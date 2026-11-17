@@ -1,0 +1,45 @@
+# Local run:      docker compose up --build
+# Against BigQuery: docker compose --profile bigquery up --build api-bigquery
+#
+# Then: curl -H "X-API-Key: local-dev-key" http://localhost:8000/v1/kpis/summary
+#       open http://localhost:8000/docs
+
+x-api: &api
+  build: .
+  image: marketing-reporting-api:local
+  ports:
+    - "8000:8000"
+  # Hardening: the API only reads, so the container gets no write access or extra rights.
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *api
+    environment:
+      WAREHOUSE: duckdb
+      # Demo key for local use only. Real keys come from a secret store, never from this file.
+      API_KEYS: ${API_KEYS:-local-dev-key}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-120}
+
+  api-bigquery:
+    <<: *api
+    profiles: ["bigquery"]
+    environment:
+      WAREHOUSE: bigquery
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:?set GCP_PROJECT_ID}
+      BQ_DATASET: ${BQ_DATASET:-marketing_reporting}
+      BQ_LOCATION: ${BQ_LOCATION:-US}
+      API_KEYS: ${API_KEYS:?set API_KEYS}
+      GOOGLE_APPLICATION_CREDENTIALS: /gcp/credentials.json
+    volumes:
+      # Your own Application Default Credentials, mounted read-only.
+      # Create them with: gcloud auth application-default login
+      - ${ADC_FILE:-~/.config/gcloud/application_default_credentials.json}:/gcp/credentials.json:ro

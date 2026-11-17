@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: pip install -e ".[dev,bigquery]"
+      - name: Lint
+        run: ruff check .
+      - name: Type check
+        run: mypy
+      - name: Tests
+        run: pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t marketing-reporting-api:ci .
+      - name: Image runs as a non-root user
+        run: test "$(docker run --rm marketing-reporting-api:ci id -u)" = "10001"
+      - name: Start container (read-only filesystem, no capabilities)
+        run: |
+          docker run -d --name api -p 8000:8000 \
+            --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+            -e API_KEYS=ci-test-key marketing-reporting-api:ci
+      - name: Wait until healthy
+        run: |
+          for i in $(seq 1 45); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' api)
+            [ "$status" = "healthy" ] && exit 0
+            sleep 2
+          done
+          docker logs api
+          exit 1
+      - name: Smoke test
+        run: |
+          set -eu
+          curl -fsS http://localhost:8000/ready
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/v1/meta)" = "401"
+          for path in /v1/meta /v1/kpis/summary "/v1/kpis/timeseries?granularity=week" \
+                      "/v1/campaigns?limit=3" /v1/campaigns/20418830011 /v1/channels \
+                      /v1/platforms "/v1/pacing?as_of=2026-10-20"; do
+            echo "GET $path"
+            curl -fsS -H "X-API-Key: ci-test-key" "http://localhost:8000$path" > /dev/null
+          done
+          curl -fsS -H "X-API-Key: ci-test-key" \
+            "http://localhost:8000/v1/kpis/summary?start_date=2026-10-01&end_date=2026-10-31" \
+            | grep -q '"spend":65186.56'
+      - name: Container shuts down gracefully on SIGTERM
+        run: |
+          docker stop --time 10 api
+          docker logs api 2>&1 | grep -q "Application shutdown complete"
+      - name: Logs
+        if: always()
+        run: docker logs api | tail -30
