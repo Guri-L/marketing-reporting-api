@@ -1,0 +1,21 @@
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+*credentials*.json
+
+# Local database (rebuilt from data/seed)
+data/*.duckdb
+data/*.duckdb.wal
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+build/
+dist/
