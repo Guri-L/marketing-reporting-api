@@ -15,9 +15,9 @@ curl -H "X-API-Key: local-dev-key" "http://localhost:8000/v1/kpis/summary?start_
 Interactive documentation is generated at `http://localhost:8000/docs`.
 
 > **Status in one line:** the API, its 99 tests and all eight SQL queries are verified locally,
-> and every query has been run in BigQuery with results identical to the local backend. The
-> Python BigQuery client path and the Cloud Run deployment have not been run against a real
-> project. See [What is verified](#what-is-verified).
+> every query has been run in BigQuery with results identical to the local backend, and CI
+> builds the Docker image and tests the running container. The Python BigQuery client path and
+> the Cloud Run deployment have not been run against a real project. See [What is verified](#what-is-verified).
 
 ## Where it fits
 
@@ -206,13 +206,14 @@ Environment variables, documented in [`.env.example`](.env.example). The main on
 | Auth, rate limiting, validation, caching, error handling, logging | Tests, including injection attempts and key-leak checks |
 | The eight SQL queries in BigQuery | Each one run in a real BigQuery project on a two-week slice; results identical to the local backend ([details](docs/bigquery_validation.md)) |
 | Installed package outside the source tree | Installed into a clean environment and served over HTTP with uvicorn |
+| Docker image | Built in CI on every pull request, then run with a read-only filesystem and no capabilities: non-root user, health check, every endpoint called, graceful shutdown on `SIGTERM` |
 | Lint and types | `ruff check .` and `mypy` pass |
 
 **Written but not yet verified:**
 
 | Area | What is unverified |
 | --- | --- |
-| Docker image | Not built on my machine (no Docker daemon available). The CI workflow builds it and runs a smoke test against the container; check the latest run. |
+| `docker compose` | The image is tested in CI with `docker run`. The compose file itself, including the BigQuery profile with mounted credentials, has not been run. |
 | Python BigQuery client path | The queries were validated in BigQuery with literal values through a SQL console. The same queries with bound parameters through `google-cloud-bigquery` are tested only against a fake client. |
 | Cloud Run deployment | [docs/deploy_cloud_run.md](docs/deploy_cloud_run.md) is a guide, not a tested script. |
 | Load | No load test. The in-memory cache and rate limiter are per process. |
